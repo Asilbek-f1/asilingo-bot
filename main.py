@@ -1,11 +1,17 @@
 import logging
+import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import ReplyKeyboardRemove
-import asyncio
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-TOKEN = "8814299645:AAEBGWFxrpPwShUgm7UL4A2wk19bfVJ7Pnk"
+TOKEN = os.environ["BOT_TOKEN"]
+WEBHOOK_HOST = os.environ["WEBHOOK_HOST"]
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+PORT = int(os.environ.get("PORT", 10000))
 
 logging.basicConfig(level=logging.INFO)
 
@@ -13,13 +19,10 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
-# /start buyrug'i va inline tugmalar
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    # Oldingi qolib ketgan pastki tugmalarni tozalash
     await message.answer("Menyu yuklanmoqda...", reply_markup=ReplyKeyboardRemove())
 
-    # Inline tugmalar yaratish
     builder = InlineKeyboardBuilder()
     builder.button(text="📞 Biz bilan bog'lanish", url="https://t.me/AsilingoSupport")
     builder.button(text="📚 Kurslar", callback_data="courses")
@@ -34,7 +37,6 @@ async def cmd_start(message: types.Message):
     )
 
 
-# Inline tugmalar bosilganda ishlaydigan qism
 @dp.callback_query()
 async def inline_handler(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -42,18 +44,35 @@ async def inline_handler(callback: types.CallbackQuery):
     if callback.data == "courses":
         await bot.send_message(user_id, "📚 Asilingo platformasida zamonaviy kurslar tez kunda ishga tushadi!")
     elif callback.data == "feedback":
-        await bot.send_message(user_id,
-                               "✍️ Taklif va shikoyatlaringizni to'g'ridan-to'g'ri @AsilingoSupport ga yozib qoldirishingiz mumkin.")
+        await bot.send_message(user_id, "✍️ Taklif va shikoyatlaringizni to'g'ridan-to'g'ri @AsilingoSupport ga yozib qoldirishingiz mumkin.")
     elif callback.data == "vocabulary":
-        await bot.send_message(user_id,
-                               "🇬🇧 Vocabulary bo'limi: bu yerda siz uchun foydali inglizcha so'zlar va iboralar taqdim etiladi!")
+        await bot.send_message(user_id, "🇬🇧 Vocabulary bo'limi: bu yerda siz uchun foydali inglizcha so'zlar va iboralar taqdim etiladi!")
 
     await callback.answer()
 
 
-async def main():
-    await dp.start_polling(bot)
+async def health_check(request):
+    return web.Response(text="Asilingo bot is running ✅")
+
+
+async def on_startup(bot: Bot):
+    await bot.set_webhook(WEBHOOK_URL)
+    logging.info(f"Webhook o'rnatildi: {WEBHOOK_URL}")
+
+
+def main():
+    app = web.Application()
+    app.router.add_get("/", health_check)
+
+    dp.startup.register(on_startup)
+
+    webhook_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
+    webhook_handler.register(app, path=WEBHOOK_PATH)
+
+    setup_application(app, dp, bot=bot)
+
+    web.run_app(app, host="0.0.0.0", port=PORT)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
